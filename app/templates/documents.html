@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8" />
+  <title>{{ app_name }} — Documents</title>
+  <link rel="stylesheet" href="/static/styles.css" />
+</head>
+<body>
+  <div class="container">
+    <div class="topbar">
+      <h1>{{ app_name }}</h1>
+      <div class="userbox" id="userbox">Chargement…</div>
+    </div>
+
+    <div class="card">
+      <h2>Documents</h2>
+      <p>(À venir) Filtrage par secteur, type de signal, semaine, score min, recherche texte.</p>
+      <table class="table">
+        <thead>
+          <tr>
+            <th>Nom</th>
+            <th>Type</th>
+            <th>Date</th>
+            <th>Score</th>
+            <th>Action</th>
+          </tr>
+        </thead>
+        <tbody id="rows">
+          <tr><td colspan="5">Chargement…</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p><a href="/login" onclick="localStorage.removeItem('token')">Se déconnecter</a></p>
+  </div>
+
+  <script>
+    function typeLabel(t){
+      const map = {
+        "PROC_COLLECTIVE": "Procédure collective",
+        "SALE_OF_BUSINESS": "Cession de fonds",
+        "M&A_PROJECT": "Projet de fusion/acq.",
+        "OTHER": "Autre"
+      };
+      return map[t] || t;
+    }
+
+    async function fetchMe() {
+      const token = localStorage.getItem('token');
+      if (!token) { window.location.href = '/login'; return; }
+      try {
+        const res = await fetch('/me', { headers: { 'Authorization': 'Bearer ' + token }});
+        if (!res.ok) throw new Error('unauth');
+        const data = await res.json();
+        const u = data.user;
+        document.getElementById('userbox').textContent = `${u.full_name} (${u.email})`;
+      } catch {
+        localStorage.removeItem('token');
+        window.location.href = '/login';
+      }
+    }
+
+    async function loadSignals() {
+      try {
+        const res = await fetch('/api/signals?limit=100');
+        const data = await res.json();
+        const tbody = document.getElementById('rows');
+        if (!data.ok || !data.items || !data.items.length) {
+          tbody.innerHTML = '<tr><td colspan="5">Aucun document.</td></tr>';
+          return;
+        }
+        tbody.innerHTML = data.items.map(it => {
+          const name = it.company_name && it.company_name !== 'Inconnue'
+            ? it.company_name
+            : (it.siren ? `SIREN ${it.siren}` : 'Société inconnue');
+          const dt = it.event_date || '';
+          const tlabel = typeLabel(it.type);
+          return `
+            <tr>
+              <td>${name}</td>
+              <td>${tlabel}</td>
+              <td>${dt}</td>
+              <td>${it.weight ?? ''}</td>
+              <td><a href="${it.url}" target="_blank" rel="noopener">Voir source</a></td>
+            </tr>`;
+        }).join('');
+      } catch (e) {
+        document.getElementById('rows').innerHTML =
+          `<tr><td colspan="5">Erreur de chargement.</td></tr>`;
+      }
+    }
+
+    fetchMe();
+    loadSignals();
+  </script>
+</body>
+</html>
+

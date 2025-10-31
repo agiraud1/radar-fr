@@ -1,0 +1,265 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8" />
+  <title>Signals – {{ app_name }}</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link href="/static/base.css" rel="stylesheet" />
+  <style>
+    body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,"Helvetica Neue",Arial;}
+    .wrap{max-width:1000px;margin:24px auto;padding:0 16px;}
+    .row{border:1px solid #eee;border-radius:12px;padding:12px 14px;margin:10px 0}
+    .head{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+    .chip{padding:2px 8px;border:1px solid #ddd;border-radius:999px;font-size:12px}
+    .btns{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
+    button{padding:6px 10px;border-radius:8px;border:1px solid #ddd;background:#fafafa;cursor:pointer}
+    button:hover{background:#f0f0f0}
+    .counts{font-size:12px;color:#666;margin-left:auto}
+    .note{width:100%;max-width:420px}
+    .token{width:100%;max-width:520px}
+    .topbar{display:flex;gap:8px;align-items:center;margin-bottom:12px}
+    .ok{color:#0a0}.err{color:#b00}
+  </style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Signals</h1>
+
+  
+  <form method="get" class="topbar" action="/signals">
+    <input name="q"        class="token" placeholder="Recherche texte (nom, SIREN, extrait)" value="{{ request.query_params.get('q','') }}">
+    <input name="date_from" class="token" style="max-width:160px" placeholder="date min (YYYY-MM-DD)" value="{{ request.query_params.get('date_from','') }}">
+    <input name="date_to"   class="token" style="max-width:160px" placeholder="date max (YYYY-MM-DD)" value="{{ request.query_params.get('date_to','') }}">
+    <select name="sig_type">
+      <option value="">type (tous)</option>
+      <option value="PROC_COLLECTIVE" {{ 'selected' if request.query_params.get('sig_type')=='PROC_COLLECTIVE' else '' }}>Procédure collective</option>
+      <option value="SALE_OF_BUSINESS" {{ 'selected' if request.query_params.get('sig_type')=='SALE_OF_BUSINESS' else '' }}>Cession de fonds</option>
+      <option value="M&A_PROJECT" {{ 'selected' if request.query_params.get('sig_type')=='M&A_PROJECT' else '' }}>Projet M&A</option>
+      <option value="OTHER" {{ 'selected' if request.query_params.get('sig_type')=='OTHER' else '' }}>Autre</option>
+    </select>
+    <select name="label">
+      <option value="">label (tous)</option>
+      <option value="reliable" {{ 'selected' if request.query_params.get('label')=='reliable' else '' }}>reliable ✅</option>
+      <option value="unclear" {{ 'selected' if request.query_params.get('label')=='unclear' else '' }}>unclear ❔</option>
+      <option value="broken_link" {{ 'selected' if request.query_params.get('label')=='broken_link' else '' }}>broken_link 🔗✖</option>
+      <option value="false_positive" {{ 'selected' if request.query_params.get('label')=='false_positive' else '' }}>false_positive 🚫</option>
+    </select>
+    <input name="limit" class="token" style="max-width:100px" type="number" min="1" max="200" value="{{ request.query_params.get('limit','20') }}">
+    <button type="submit">Filtrer</button>
+  </form>
+
+  <div class="topbar">
+    <input id="token" class="token" type="text" placeholder="Colle ici un Bearer token (dev-login)"/>
+    <button id="saveToken">Mémoriser</button>
+    <span id="tokStatus"></span>
+  </div>
+
+  {% for it in items %}
+    <div class="row" data-sid="{{ it.id }}">
+      <div class="head">
+        <strong>#{{ it.id }}</strong>
+        <span>{{ it.company_name }} ({{ it.siren or "—" }})</span>{% if it.siren %} <a class="chip" target="_blank" href="https://annuaire-entreprises.data.gouv.fr/entreprise/{{ it.siren }}">fiche AE ↗</a>{% endif %}
+        <span class="chip">{{ it.type }}</span>
+        <span class="chip">{{ it.event_date }}</span>
+        <a href="{{ it.url }}" target="_blank" class="chip">ouvrir la source ↗</a>
+        {% set c = counts.get(it.id, {}) %}
+        {% if c.get('broken_link',0) > 0 %}
+          <span class="chip" style="border-color:#e99;background:#fee;">lien cassé auto</span>
+        {% endif %}
+        <span class="counts">
+          {% set c = counts.get(it.id, {}) %}
+          {{ c.get('reliable',0) }}✅ /
+          {{ c.get('unclear',0) }}❔ /
+          {{ c.get('broken_link',0) }}🔗✖ /
+          {{ c.get('false_positive',0) }}🚫
+        </span>
+      </div>
+      <div style="margin-top:6px">{{ it.excerpt }}</div>
+      <div class="btns">
+        {% for lab in allowed_labels %}
+          <button data-label="{{ lab }}">{{ lab }}</button>
+        {% endfor %}
+        <input class="note" type="text" placeholder="note (facultative, max ~2000c)"/>
+      </div>
+    </div>
+  {% endfor %}
+
+<div class="topbar" style="justify-content:space-between">
+  <div></div>
+  <div>
+    <button id="pgPrev">« Précédent</button>
+    <button id="pgNext">Suivant »</button>
+  </div>
+</div>
+
+<script>
+
+(function(){
+  const tokenInput = document.getElementById('token');
+  const saveBtn = document.getElementById('saveToken');
+  const tokStatus = document.getElementById('tokStatus');
+
+  tokenInput.value = localStorage.getItem('radar_token') || '';
+  tokStatus.textContent = tokenInput.value ? 'token chargé' : 'token vide';
+
+  saveBtn.onclick = () => {
+    localStorage.setItem('radar_token', tokenInput.value.trim());
+    tokStatus.textContent = tokenInput.value ? 'token enregistré' : 'token vide';
+  };
+
+  document.querySelectorAll('.row').forEach(row => {
+    const sid = row.getAttribute('data-sid');
+    const noteEl = row.querySelector('.note');
+    row.querySelectorAll('button[data-label]').forEach(btn => {
+      btn.onclick = async () => {
+        const token = (document.getElementById('token').value || '').trim();
+        if(!token){ tokStatus.textContent = '⚠️ token manquant'; tokStatus.className='err'; return; }
+        tokStatus.textContent = ''; tokStatus.className='';
+
+        const label = btn.getAttribute('data-label');
+        const note = noteEl.value || '';
+
+        const res = await fetch(`/api/signals/${sid}/feedback`, {
+          method: 'POST',
+          headers: {
+            'Authorization': 'Bearer ' + token,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({label, note})
+        });
+        const data = await res.json();
+        if(!res.ok){ alert('Erreur: ' + (data.detail || res.status)); return; }
+
+        const r2 = await fetch(`/api/signals/${sid}/feedback?limit=5`);
+        const d2 = await r2.json();
+        const countsEl = row.querySelector('.counts');
+        const c = (d2.counts||[]).reduce((acc,x)=>{acc[x.label]=x.count; return acc;}, {});
+        countsEl.textContent = `${c.reliable||0}✅ / ${c.unclear||0}❔ / ${c.broken_link||0}🔗✖ / ${c.false_positive||0}🚫`;
+      };
+    });
+  });
+})();
+
+// --- pagination client léger ---
+(function(){
+  const qs = new URLSearchParams(location.search);
+  function set(k,v){ if(v==null||v===""){ qs.delete(k); } else { qs.set(k,v); } }
+  function go(){ location.search = "?" + qs.toString(); }
+
+  // récupère last cursors depuis l'API (avec filtres)
+  async function fetchCursor(which){
+    const params = new URLSearchParams(qs.toString());
+    params.set("limit","1");
+    const r = await fetch("/api/signals?"+params.toString());
+    const j = await r.json().catch(()=>({}));
+    return j?.cursors?.[which] || null;
+  }
+
+  const pgPrev = document.getElementById("pgPrev");
+  const pgNext = document.getElementById("pgNext");
+
+  if(pgNext){
+    pgNext.addEventListener("click", async ()=>{
+      const cur = await fetchCursor("next");
+      if(!cur){ return; }
+      set("cursor", cur); set("dir","next");
+      go();
+    });
+  }
+  if(pgPrev){
+    pgPrev.addEventListener("click", async ()=>{
+      const cur = await fetchCursor("prev");
+      if(!cur){ return; }
+      set("cursor", cur); set("dir","prev");
+      go();
+    });
+  }
+})();
+</script>
+
+</body>
+</html>
+
+  // envoi des feedbacks
+  function bearer(){ return localStorage.getItem(LS_KEY) || ""; }
+
+  async function sendFeedback(signalId, label, note){
+    const tok = bearer();
+    if(!tok){ alert("Colle un Bearer token (bouton en haut)."); return; }
+    const resp = await fetch(`/api/signals/${signalId}/feedback`, {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${tok}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({ label, note })
+    });
+    const json = await resp.json().catch(()=>({}));
+    if(!resp.ok){ console.error(json); alert(`Erreur: ${resp.status}`); return; }
+    return json;
+  }
+
+  // bind sur chaque ligne
+  document.querySelectorAll(".row").forEach(row=>{
+    const sid = row.getAttribute("data-sid");
+    const note = row.querySelector(".note");
+    row.querySelectorAll('button[data-label]').forEach(btn=>{
+      btn.addEventListener("click", async ()=>{
+        const label = btn.getAttribute("data-label");
+        const res = await sendFeedback(sid, label, (note?.value||"").trim());
+        if(res?.ok){
+          // feedback OK: rafraîchir juste les compteurs = on refait un GET /api/signals/{sid}/feedback
+          try{
+            const r = await fetch(`/api/signals/${sid}/feedback?limit=5`);
+            const j = await r.json();
+            if(j?.ok){
+              const c = j.counts.reduce((m, x)=>{ m[x.label]=x.count; return m; }, {});
+              const countsEl = row.querySelector(".counts");
+              if(countsEl){
+                countsEl.textContent = `${c.reliable||0}✅ / ${c.unclear||0}❔ / ${c.broken_link||0}🔗✖ / ${c.false_positive||0}🚫`;
+              }
+            }
+          }catch(e){ console.warn("refresh counters failed", e); }
+        }
+      });
+    });
+  });
+})();
+
+// --- pagination client léger ---
+(function(){
+  const qs = new URLSearchParams(location.search);
+  function set(k,v){ if(v==null||v===""){ qs.delete(k); } else { qs.set(k,v); } }
+  function go(){ location.search = "?" + qs.toString(); }
+
+  // récupère last cursors depuis l'API (avec filtres)
+  async function fetchCursor(which){
+    const params = new URLSearchParams(qs.toString());
+    params.set("limit","1");
+    const r = await fetch("/api/signals?"+params.toString());
+    const j = await r.json().catch(()=>({}));
+    return j?.cursors?.[which] || null;
+  }
+
+  const pgPrev = document.getElementById("pgPrev");
+  const pgNext = document.getElementById("pgNext");
+
+  if(pgNext){
+    pgNext.addEventListener("click", async ()=>{
+      const cur = await fetchCursor("next");
+      if(!cur){ return; }
+      set("cursor", cur); set("dir","next");
+      go();
+    });
+  }
+  if(pgPrev){
+    pgPrev.addEventListener("click", async ()=>{
+      const cur = await fetchCursor("prev");
+      if(!cur){ return; }
+      set("cursor", cur); set("dir","prev");
+      go();
+    });
+  }
+})();
+</script>
+

@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8" />
+  <title>{{ app_name }} — Connexion</title>
+  <link rel="stylesheet" href="/static/styles.css" />
+</head>
+<body>
+  <div class="container">
+    <h1>{{ app_name }}</h1>
+    <div class="card">
+      <h2>Connexion</h2>
+      <form id="loginForm">
+        <label>Email</label>
+        <input type="email" id="email" placeholder="admin@demo.local" required />
+        <label>Mot de passe</label>
+        <input type="password" id="password" placeholder="demo1234" required />
+        <button type="submit">Se connecter</button>
+      </form>
+      <p id="error" class="error"></p>
+    </div>
+  </div>
+  <script>
+    const form = document.getElementById('loginForm');
+    const err = document.getElementById('error');
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      err.textContent = '';
+      const email = document.getElementById('email').value.trim();
+      const password = document.getElementById('password').value;
+
+      try {
+        const res = await fetch('/auth/login', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({ email, password })
+        });
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}));
+          throw new Error(data.detail || 'Échec de connexion');
+        }
+        const data = await res.json();
+        localStorage.setItem('token', data.access_token);
+        window.location.href = '/documents';
+      } catch (e) {
+        err.textContent = e.message;
+      }
+    });
+  </script>
+</body>
+</html>
