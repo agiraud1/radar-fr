@@ -25,3 +25,8 @@ secrets*.json
 # Compiled assets / cache
 static/dist/
 .cache/
+
+# Backups
+*.bak
+app/main.py.bak*
+=
