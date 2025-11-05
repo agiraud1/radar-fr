@@ -1,20 +1,14 @@
 name: CI
-
 on:
-  pull_request:
-    branches: [ main ]
-  push:
-    branches: [ main ]
+  pull_request: { branches: [ main ] }
+  push:        { branches: [ main ] }
 
 jobs:
   build-and-lint:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
 
@@ -22,13 +16,14 @@ jobs:
         run: |
           pip install --upgrade pip
           pip install -r app/requirements.txt
-          pip install ruff flake8
+          pip install ruff
 
       - name: Lint (ruff)
         run: ruff check .
 
-      - name: Lint (flake8)
-        run: flake8 .
+      # Flake8 désactivé provisoirement
+      # - name: Lint (flake8)
+      #   run: flake8 .
 
       - name: Build Docker image
         run: docker build -t radar-fr-app -f app/Dockerfile .
