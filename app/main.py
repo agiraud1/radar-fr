@@ -1,17 +1,20 @@
 from fastapi import Request, Response
-from fastapi import FastAPI, Request, Response, Query
+from pathlib import Path
+BASE_DIR = Path(__file__).resolve().parent
+from fastapi import FastAPI, Query
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
-from starlette.responses import Response as StarResponse
 from fastapi.encoders import jsonable_encoder
-import os, hashlib, json as jsonlib
+import os
+import hashlib
+import json as jsonlib
 import json as _json
-from fastapi import FastAPI, Request, Response, Query, HTTPException, Header, Body
-import psycopg, os, datetime as dt
+from fastapi import HTTPException, Header, Body
+import psycopg
+import datetime as dt
 
 
 
-from fastapi import FastAPI
 # --- CORS (frontend local sur 3000) ---
 app = FastAPI()
 
@@ -60,29 +63,26 @@ def _json_with_etag(payload, request: Request) -> Response:
     if inm == etag:
         return Response(status_code=304, headers=headers, media_type="application/json")
     return Response(content=body, headers=headers, media_type="application/json")
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 import re
-import os
-import hashlib
-import json as jsonlib
 
-from db import init_db
-from auth import (
+from app.db import init_db
+from app.auth import (
     get_user_by_email, verify_password, create_access_token, decode_token, get_user_by_id
 )
-from settings import INTERNAL_TOKEN
-from scoring import recompute_daily
-from sources.bodacc import collect as bodacc_collect
+from app.settings import INTERNAL_TOKEN
+from app.scoring import recompute_daily
+from app.sources.bodacc import collect as bodacc_collect
 
 # app.add_middleware(ETagSignalsMiddleware)  # disabled: called before app init
 
 # Static & templates
-app.mount("/static", StaticFiles(directory="static"), name="static")
-templates = Jinja2Templates(directory="templates")
+app.mount("/static", StaticFiles(directory=str(BASE_DIR / "static")), name="static")
+templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 
 @app.get("/", response_class=HTMLResponse)
 def root():
@@ -199,11 +199,10 @@ def collector_bodacc_ingest(token: str = Query(default=""), limit: int = Query(d
 
     return {"ok": True, "inserted": inserted, "count_source": len(items)}
 from typing import Optional, List, Dict
-import psycopg
 
 @app.post("/admin/score-daily")
 def admin_score_daily(token: str = Query(default=""), date: str | None = Query(default=None)):
-    from settings import INTERNAL_TOKEN  # sécurité: lit depuis l'env au runtime
+    from app.settings import INTERNAL_TOKEN  # sécurité: lit depuis l'env au runtime
     if token != INTERNAL_TOKEN:
         raise HTTPException(status_code=401, detail="Invalid internal token")
     try:
@@ -360,7 +359,7 @@ def dev_login(token: str = Query(default=""), user_id: int = Query(default=1)):
     jwt = create_access_token({"sub": str(user_id), "client_id": 0})
     return {"access_token": jwt, "token_type": "bearer"}
 # --- UI Signals (liste + feedback) ---
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse
 
 @app.get("/signals", response_class=HTMLResponse)
 def signals_page(request: Request,
@@ -390,12 +389,12 @@ def signals_page(request: Request,
     rows = []
     with psycopg.connect(DB_URL) as conn:
         with conn.cursor() as cur:
-            cur.execute(f"""
+            cur.execute("""
                 select s.id, coalesce(c.name,'Inconnue') as company_name, c.siren,
                        s.type, s.event_date, s.url, s.excerpt, s.weight, s.confidence
                   from signal s
              left join company c on c.id = s.company_id
-                 where {{}}  -- placeholder
+                 where {}  -- placeholder
               order by s.event_date desc, s.id desc
                  limit %s;
             """.replace("{{}}", " AND ".join(where)), (*params, limit))
@@ -409,7 +408,7 @@ def signals_page(request: Request,
         ids = tuple(r["id"] for r in rows)
         with psycopg.connect(DB_URL) as conn:
             with conn.cursor() as cur:
-                cur.execute(f"""
+                cur.execute("""
                     select signal_id, label, count(*) as n
                     where signal_id in %s
                     group by signal_id, label
@@ -455,11 +454,11 @@ def signals_page(request: Request,
     rows = []
     with psycopg.connect(DB_URL) as conn:
         with conn.cursor() as cur:
-            cur.execute(f"""
+            cur.execute("""
                 select s.id, coalesce(c.name,'Inconnue') as company_name, c.siren,
                        s.type, s.event_date, s.url, s.excerpt, s.weight, s.confidence
              left join company c on c.id = s.company_id
-                 where {{}}  -- placeholder
+                 where {}  -- placeholder
               order by s.event_date desc, s.id desc
                  limit %s;
             """.replace("{{}}", " AND ".join(where)), (*params, limit))
@@ -489,8 +488,10 @@ def signals_page(request: Request,
         "app_name": "Radar FR"
     })
 # --- INTERNAL: check source links and tag broken_link ---
-import urllib.request, urllib.error, socket
-from scheduler import start_jobs  # ensured by patch
+import urllib.request
+import urllib.error
+import socket
+from app.scheduler import start_jobs  # ensured by patch
 
 @app.on_event("startup")
 async def _start_jobs():
