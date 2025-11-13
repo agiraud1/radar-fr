@@ -1,0 +1,41 @@
+name: Deploy (VPS)
+
+on:
+  push:
+    branches: [ "main" ]
+  workflow_dispatch: {}
+
+concurrency:
+  group: deploy-main
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: SSH into VPS and deploy
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          # 👉 Si tu as un mot de passe (simple) :
+          password: ${{ secrets.SSH_PASSWORD }}
+          # 👉 Si tu utilises une clé (recommandé), commente 'password' et utilise :
+          # key: ${{ secrets.SSH_KEY }}
+          port: ${{ secrets.SSH_PORT || 22 }}
+          script: |
+            set -euo pipefail
+            cd ~/radar-fr
+            echo "[1/4] Pull du code…"
+            git fetch origin main && git reset --hard origin/main
+
+            echo "[2/4] Build de l'image…"
+            docker build -t radar-fr-app -f app/Dockerfile .
+
+            echo "[3/4] (Re)lance le stack…"
+            cd deploy
+            docker compose up -d --remove-orphans
+
+            echo "[4/4] Healthcheck…"
+            curl -fsS https://api.attila-software.fr/healthz >/dev/null
+            echo "✅ Déploiement OK"
