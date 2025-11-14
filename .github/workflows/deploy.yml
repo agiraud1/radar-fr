@@ -1,41 +1,54 @@
-name: Deploy (VPS)
+name: Deploy to VPS
 
 on:
   push:
     branches: [ "main" ]
-  workflow_dispatch: {}
-
-concurrency:
-  group: deploy-main
-  cancel-in-progress: true
+  workflow_dispatch:
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
-      - name: SSH into VPS and deploy
+      - name: SSH to VPS and deploy
         uses: appleboy/ssh-action@v1.0.3
+        env:                      # <- on expose GH_PAT au step
+          GH_PAT: ${{ secrets.GH_PAT }}
         with:
           host: ${{ secrets.SSH_HOST }}
           username: ${{ secrets.SSH_USER }}
-          # 👉 Si tu as un mot de passe (simple) :
-          password: ${{ secrets.SSH_PASSWORD }}
-          # 👉 Si tu utilises une clé (recommandé), commente 'password' et utilise :
-          # key: ${{ secrets.SSH_KEY }}
-          port: ${{ secrets.SSH_PORT || 22 }}
+          key: ${{ secrets.SSH_KEY }}     # ta clé privée 'gha'
+          # port: ${{ secrets.SSH_PORT }} # <-- optionnel; sinon supprime (22 par défaut)
+          envs: GH_PAT                    # <- on transmet GH_PAT au shell distant
+          script_stop: true
           script: |
-            set -euo pipefail
-            cd ~/radar-fr
-            echo "[1/4] Pull du code…"
-            git fetch origin main && git reset --hard origin/main
+            set -Eeuo pipefail
 
-            echo "[2/4] Build de l'image…"
+            # 1) Clone initial si besoin
+            if [ ! -d "$HOME/radar-fr/.git" ]; then
+              git clone "https://x-access-token:${GH_PAT}@github.com/agiraud1/radar-fr.git" "$HOME/radar-fr"
+            fi
+
+            # 2) Fetch/reset sans stocker le token dans le remote
+            git -C "$HOME/radar-fr" fetch --prune "https://x-access-token:${GH_PAT}@github.com/agiraud1/radar-fr.git" +refs/heads/main:refs/remotes/origin/main
+            git -C "$HOME/radar-fr" reset --hard origin/main
+
+            # 3) Build image
+            cd "$HOME/radar-fr"
             docker build -t radar-fr-app -f app/Dockerfile .
 
-            echo "[3/4] (Re)lance le stack…"
-            cd deploy
-            docker compose up -d --remove-orphans
+            # 4) (Re)démarre le stack
+            cd "$HOME/radar-fr/deploy"
+            docker compose up -d
 
-            echo "[4/4] Healthcheck…"
-            curl -fsS https://api.attila-software.fr/healthz >/dev/null
-            echo "✅ Déploiement OK"
+            # 5) Healthcheck
+            code=$(curl -fsS -o /dev/null -w "%{http_code}\n" https://api.attila-software.fr/healthz || true)
+            if [ "$code" != "200" ]; then
+              echo "Healthcheck FAILED ($code). Logs:"
+              docker logs --tail=150 caddy || true
+              docker logs --tail=150 radar_app || true
+              exit 1
+            fi
+
+            echo "✅ Deploy OK (healthz=200)"
+
