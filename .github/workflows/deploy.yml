@@ -10,16 +10,16 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - name: SSH to VPS and deploy
+            - name: SSH to VPS and deploy
         uses: appleboy/ssh-action@v1.0.3
-        env:                      # <- on expose GH_PAT au step
+        env:
           GH_PAT: ${{ secrets.GH_PAT }}
         with:
           host: ${{ secrets.SSH_HOST }}
           username: ${{ secrets.SSH_USER }}
-          key: ${{ secrets.SSH_KEY }}     # ta clé privée 'gha'
-          # port: ${{ secrets.SSH_PORT }} # <-- optionnel; sinon supprime (22 par défaut)
-          envs: GH_PAT                    # <- on transmet GH_PAT au shell distant
+          key: ${{ secrets.SSH_KEY }}
+          # port: ${{ secrets.SSH_PORT }}   # si tu en as un, sinon commente
+          envs: GH_PAT
           script_stop: true
           script: |
             set -Eeuo pipefail
@@ -33,15 +33,20 @@ jobs:
             git -C "$HOME/radar-fr" fetch --prune "https://x-access-token:${GH_PAT}@github.com/agiraud1/radar-fr.git" +refs/heads/main:refs/remotes/origin/main
             git -C "$HOME/radar-fr" reset --hard origin/main
 
-            # 3) Build image
             cd "$HOME/radar-fr"
+
+            # 3) Build image app
             docker build -t radar-fr-app -f app/Dockerfile .
 
-            # 4) (Re)démarre le stack depuis la racine du repo
-            cd "$HOME/radar-fr"
+            # 4) Stop & clean previous stack (avoid name conflicts)
+            docker compose -f docker-compose.yml -f docker-compose.prod.yml down || true
+            docker rm -f radar_app 2>/dev/null || true
+            docker rm -f radar_db 2>/dev/null || true
+
+            # 5) Start new stack
             docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
 
-            # 5) Healthcheck
+            # 6) Healthcheck
             code=$(curl -fsS -o /dev/null -w "%{http_code}\n" https://api.attila-software.fr/healthz || true)
             if [ "$code" != "200" ]; then
               echo "Healthcheck FAILED ($code). Logs:"
