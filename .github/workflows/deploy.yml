@@ -37,9 +37,9 @@ jobs:
             cd "$HOME/radar-fr"
             docker build -t radar-fr-app -f app/Dockerfile .
 
-            # 4) (Re)démarre le stack
-            cd "$HOME/radar-fr/deploy"
-            docker compose up -d
+            # 4) (Re)démarre le stack depuis la racine du repo
+            cd "$HOME/radar-fr"
+            docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
 
             # 5) Healthcheck
             code=$(curl -fsS -o /dev/null -w "%{http_code}\n" https://api.attila-software.fr/healthz || true)
@@ -51,4 +51,3 @@ jobs:
             fi
 
             echo "✅ Deploy OK (healthz=200)"
-
