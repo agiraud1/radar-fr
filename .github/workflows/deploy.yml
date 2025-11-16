@@ -38,8 +38,9 @@ jobs:
 
             cd "$HOME/radar-fr"
 
-            # 3) Arrête l'ancien stack (évite le conflit de nom de container)
+            # 3) Stop ancien stack + containers nommés (évite les conflits)
             docker compose -f docker-compose.yml -f docker-compose.prod.yml down || true
+            docker rm -f radar_app radar_db 2>/dev/null || true
 
             # 4) Build image
             docker build -t radar-fr-app -f app/Dockerfile .
