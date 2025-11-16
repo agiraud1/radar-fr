@@ -2,15 +2,17 @@ name: Deploy to VPS
 
 on:
   push:
-    branches: [ "main" ]
+    branches:
+      - main
   workflow_dispatch:
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
     timeout-minutes: 20
+
     steps:
-            - name: SSH to VPS and deploy
+      - name: SSH to VPS and deploy
         uses: appleboy/ssh-action@v1.0.3
         env:
           GH_PAT: ${{ secrets.GH_PAT }}
@@ -18,11 +20,12 @@ jobs:
           host: ${{ secrets.SSH_HOST }}
           username: ${{ secrets.SSH_USER }}
           key: ${{ secrets.SSH_KEY }}
-          # port: ${{ secrets.SSH_PORT }}   # si tu en as un, sinon commente
+          # port: ${{ secrets.SSH_PORT }}   # décommente si tu as un port custom
           envs: GH_PAT
           script_stop: true
           script: |
             set -Eeuo pipefail
+            echo "== START DEPLOY =="
 
             # 1) Clone initial si besoin
             if [ ! -d "$HOME/radar-fr/.git" ]; then
@@ -35,18 +38,17 @@ jobs:
 
             cd "$HOME/radar-fr"
 
-            # 3) Build image app
+            # 3) Arrête l'ancien stack (évite le conflit de nom de container)
+            docker compose -f docker-compose.yml -f docker-compose.prod.yml down || true
+
+            # 4) Build image
             docker build -t radar-fr-app -f app/Dockerfile .
 
-            # 4) Stop & clean previous stack (avoid name conflicts)
-            docker compose -f docker-compose.yml -f docker-compose.prod.yml down || true
-            docker rm -f radar_app 2>/dev/null || true
-            docker rm -f radar_db 2>/dev/null || true
-
-            # 5) Start new stack
+            # 5) (Re)démarre le stack
             docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
 
             # 6) Healthcheck
+            sleep 10
             code=$(curl -fsS -o /dev/null -w "%{http_code}\n" https://api.attila-software.fr/healthz || true)
             if [ "$code" != "200" ]; then
               echo "Healthcheck FAILED ($code). Logs:"
