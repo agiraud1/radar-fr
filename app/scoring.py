@@ -1,16 +1,24 @@
-import os, datetime, psycopg
+import os
+import datetime
+
+import psycopg
 
 DB_URL = os.getenv("DB_URL", "postgresql://radar:radarpass@db:5432/radar")
 
-# Recalcule le score par société pour une date donnée (UTC)
-def recompute_daily(score_date: str | None = None) -> int:
-    if not score_date:
+
+def recompute_daily(score_date=None) -> int:
+    """
+    Recalcule le score par société pour une date donnée (UTC).
+    Retourne le nombre de lignes insérées / mises à jour.
+    """
+    if score_date is None:
         score_date = datetime.date.today().isoformat()
 
     with psycopg.connect(DB_URL, autocommit=True) as conn:
         with conn.cursor() as cur:
             # Aggrège les poids, prend le type dominant et une explication simple
-            cur.execute("""
+            cur.execute(
+                """
                 with day_signals as (
                   select
                     s.company_id,
@@ -30,7 +38,13 @@ def recompute_daily(score_date: str | None = None) -> int:
                   from day_signals
                   group by company_id
                 )
-                insert into company_score_daily(company_id, score_date, score_total, top_signal_type, explanation)
+                insert into company_score_daily(
+                    company_id,
+                    score_date,
+                    score_total,
+                    top_signal_type,
+                    explanation
+                )
                 select
                   company_id,
                   %s::date,
@@ -43,6 +57,8 @@ def recompute_daily(score_date: str | None = None) -> int:
                       top_signal_type = excluded.top_signal_type,
                       explanation = excluded.explanation
                 returning company_id;
-            """, (score_date, score_date, score_date))
+                """,
+                (score_date, score_date, score_date),
+            )
             # rowcount = nb lignes insérées/MAJ
             return cur.rowcount
