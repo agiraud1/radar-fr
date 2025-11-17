@@ -21,4 +21,3 @@ EXPOSE 8080
 # 3) Lancement de l'API FastAPI
 # -> module app.main, objet app
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8080"]
-
