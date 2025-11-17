@@ -3,7 +3,7 @@ from apscheduler.triggers.cron import CronTrigger
 import pytz
 
 # Tes jobs réels
-from scoring import recompute_daily
+from app.scoring import recompute_daily
 
 # Exemple de stub pour plus tard
 def check_links():
