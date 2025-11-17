@@ -423,17 +423,6 @@ def signals_page(request: Request,
         "allowed_labels": ["reliable","unclear","broken_link","false_positive"],
         "app_name": "Radar FR"
     })
-
-# --- UI Signals (liste + feedback) ---
-
-@app.get("/signals", response_class=HTMLResponse)
-def signals_page(request: Request,
-                 limit: int = Query(default=20, ge=1, le=200),
-                 q: str | None = Query(default=None),
-                 sig_type: str | None = Query(default=None),
-                 label: str | None = Query(default=None),
-                 date_from: str | None = Query(default=None),
-                 date_to: str | None = Query(default=None)):
     # Build filtres
     where = ["1=1"]
     params = []
