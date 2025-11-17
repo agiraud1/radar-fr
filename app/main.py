@@ -362,13 +362,103 @@ def dev_login(token: str = Query(default=""), user_id: int = Query(default=1)):
 from fastapi.responses import HTMLResponse
 
 @app.get("/signals", response_class=HTMLResponse)
-def signals_page(request: Request,
-                 limit: int = Query(default=20, ge=1, le=200),
-                 q: str | None = Query(default=None),
-                 sig_type: str | None = Query(default=None),
-                 label: str | None = Query(default=None),
-                 date_from: str | None = Query(default=None),
-                 date_to: str | None = Query(default=None)):
+def signals_page(
+    request: Request,
+    limit: int = Query(default=20, ge=1, le=200),
+    q: str | None = Query(default=None),
+    sig_type: str | None = Query(default=None),
+    label: str | None = Query(default=None),
+    date_from: str | None = Query(default=None),
+    date_to: str | None = Query(default=None),
+):
+    # Build filtres
+    where = ["1=1"]
+    params: list = []
+
+    if q and q.strip():
+        where.append("(s.excerpt ILIKE %s OR c.name ILIKE %s OR c.siren ILIKE %s)")
+        v = f"%{q.strip()}%"
+        params += [v, v, v]
+
+    if sig_type and sig_type.strip():
+        where.append("s.type = %s")
+        params.append(sig_type.strip())
+
+    if date_from:
+        where.append("s.event_date >= %s::date")
+        params.append(date_from)
+
+    if date_to:
+        where.append("s.event_date <= %s::date")
+        params.append(date_to)
+
+    if label and label.strip():
+        where.append(
+            "EXISTS (select 1 from signal_feedback sf "
+            "where sf.signal_id = s.id and sf.label = %s)"
+        )
+        params.append(label.strip())
+
+    where_sql = " AND ".join(where)
+
+    # Derniers signaux avec agrégats de feedback par signal
+    rows: list[dict] = []
+    with psycopg.connect(DB_URL) as conn:
+        with conn.cursor() as cur:
+            sql = f"""
+                select s.id,
+                       coalesce(c.name,'Inconnue') as company_name,
+                       c.siren,
+                       s.type,
+                       s.event_date,
+                       s.url,
+                       s.excerpt,
+                       s.weight,
+                       s.confidence
+                  from signal s
+             left join company c on c.id = s.company_id
+                 where {where_sql}
+              order by s.event_date desc, s.id desc
+                 limit %s;
+            """
+            cur.execute(sql, (*params, limit))
+            cols = [d[0] for d in cur.description]
+            for r in cur.fetchall():
+                rows.append(dict(zip(cols, r)))
+
+    # Feedback counts pour ces signaux
+    counts: dict[int, dict[str, int]] = {}
+    if rows:
+        ids = [r["id"] for r in rows]
+        with psycopg.connect(DB_URL) as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    select signal_id, label, count(*) as n
+                      from signal_feedback
+                     where signal_id = ANY(%s)
+                     group by signal_id, label;
+                    """,
+                    (ids,),
+                )
+                for sid, lbl, n in cur.fetchall():
+                    counts.setdefault(sid, {})[lbl] = int(n)
+
+    return templates.TemplateResponse(
+        "signals.html",
+        {
+            "request": request,
+            "items": rows,
+            "counts": counts,
+            "allowed_labels": [
+                "reliable",
+                "unclear",
+                "broken_link",
+                "false_positive",
+            ],
+            "app_name": "Radar FR",
+        },
+    )
     # Build filtres
     where = ["1=1"]
     params = []
