@@ -372,34 +372,34 @@ def signals_page(
     date_to: str | None = Query(default=None),
 ):
     # Build filtres
-    where = ["1=1"]
+    where_clauses: list[str] = ["1=1"]
     params: list = []
 
     if q and q.strip():
-        where.append("(s.excerpt ILIKE %s OR c.name ILIKE %s OR c.siren ILIKE %s)")
         v = f"%{q.strip()}%"
-        params += [v, v, v]
+        where_clauses.append("(s.excerpt ILIKE %s OR c.name ILIKE %s OR c.siren ILIKE %s)")
+        params.extend([v, v, v])
 
     if sig_type and sig_type.strip():
-        where.append("s.type = %s")
+        where_clauses.append("s.type = %s")
         params.append(sig_type.strip())
 
     if date_from:
-        where.append("s.event_date >= %s::date")
+        where_clauses.append("s.event_date >= %s::date")
         params.append(date_from)
 
     if date_to:
-        where.append("s.event_date <= %s::date")
+        where_clauses.append("s.event_date <= %s::date")
         params.append(date_to)
 
     if label and label.strip():
-        where.append(
+        where_clauses.append(
             "EXISTS (select 1 from signal_feedback sf "
             "where sf.signal_id = s.id and sf.label = %s)"
         )
         params.append(label.strip())
 
-    where_sql = " AND ".join(where)
+    where_sql = " AND ".join(where_clauses)
 
     # Derniers signaux avec agrégats de feedback par signal
     rows: list[dict] = []
@@ -459,113 +459,6 @@ def signals_page(
             "app_name": "Radar FR",
         },
     )
-    # Build filtres
-    where = ["1=1"]
-    params = []
-    if q and q.strip():
-        where.append("(s.excerpt ILIKE %s OR c.name ILIKE %s OR c.siren ILIKE %s)")
-        v = f"%{q.strip()}%"; params += [v, v, v]
-    if sig_type and sig_type.strip():
-        where.append("s.type = %s"); params.append(sig_type.strip())
-    if date_from:
-        where.append("s.event_date >= %s::date"); params.append(date_from)
-    if date_to:
-        where.append("s.event_date <= %s::date"); params.append(date_to)
-    if label and label.strip():
-        where.append("EXISTS (select 1 from signal_feedback sf where sf.signal_id = s.id and sf.label = %s)")
-        params.append(label.strip())
-
-    # Derniers signaux avec agrégats de feedback par signal
-    rows = []
-    with psycopg.connect(DB_URL) as conn:
-        with conn.cursor() as cur:
-            cur.execute("""
-                select s.id, coalesce(c.name,'Inconnue') as company_name, c.siren,
-                       s.type, s.event_date, s.url, s.excerpt, s.weight, s.confidence
-                  from signal s
-             left join company c on c.id = s.company_id
-                 where {}  -- placeholder
-              order by s.event_date desc, s.id desc
-                 limit %s;
-            """.replace("{{}}", " AND ".join(where)), (*params, limit))
-            cols = [d[0] for d in cur.description]
-            for r in cur.fetchall():
-                rows.append(dict(zip(cols, r)))
-
-    # Feedback counts pour ces signaux
-    counts = {}
-    if rows:
-        ids = tuple(r["id"] for r in rows)
-        with psycopg.connect(DB_URL) as conn:
-            with conn.cursor() as cur:
-                cur.execute("""
-                    select signal_id, label, count(*) as n
-                    where signal_id in %s
-                    group by signal_id, label
-                """, (ids,))
-                for sid, label, n in cur.fetchall():
-                    counts.setdefault(sid, {})[label] = int(n)
-
-    return templates.TemplateResponse("signals.html", {
-        "request": request,
-        "items": rows,
-        "counts": counts,
-        "allowed_labels": ["reliable","unclear","broken_link","false_positive"],
-        "app_name": "Radar FR"
-    })
-    # Build filtres
-    where = ["1=1"]
-    params = []
-    if q and q.strip():
-        where.append("(s.excerpt ILIKE %s OR c.name ILIKE %s OR c.siren ILIKE %s)")
-        v = f"%{q.strip()}%"; params += [v, v, v]
-    if sig_type and sig_type.strip():
-        where.append("s.type = %s"); params.append(sig_type.strip())
-    if date_from:
-        where.append("s.event_date >= %s::date"); params.append(date_from)
-    if date_to:
-        where.append("s.event_date <= %s::date"); params.append(date_to)
-    if label and label.strip():
-        where.append("EXISTS (select 1 from signal_feedback sf where sf.signal_id = s.id and sf.label = %s)")
-        params.append(label.strip())
-
-    # Derniers signaux
-    rows = []
-    with psycopg.connect(DB_URL) as conn:
-        with conn.cursor() as cur:
-            cur.execute("""
-                select s.id, coalesce(c.name,'Inconnue') as company_name, c.siren,
-                       s.type, s.event_date, s.url, s.excerpt, s.weight, s.confidence
-             left join company c on c.id = s.company_id
-                 where {}  -- placeholder
-              order by s.event_date desc, s.id desc
-                 limit %s;
-            """.replace("{{}}", " AND ".join(where)), (*params, limit))
-            cols = [d[0] for d in cur.description]
-            for r in cur.fetchall():
-                rows.append(dict(zip(cols, r)))
-
-    # Agrégats feedback pour ces signaux
-    counts = {}
-    if rows:
-        ids = tuple(r["id"] for r in rows)
-        with psycopg.connect(DB_URL) as conn:
-            with conn.cursor() as cur:
-                cur.execute("""
-                    select signal_id, label, count(*) as n
-                     where signal_id in %s
-                     group by signal_id, label
-                """, (ids,))
-                for sid, label, n in cur.fetchall():
-                    counts.setdefault(sid, {})[label] = int(n)
-
-    return templates.TemplateResponse("signals.html", {
-        "request": request,
-        "items": rows,
-        "counts": counts,
-        "allowed_labels": ["reliable","unclear","broken_link","false_positive"],
-        "app_name": "Radar FR"
-    })
 # --- INTERNAL: check source links and tag broken_link ---
 import urllib.request
 import urllib.error
