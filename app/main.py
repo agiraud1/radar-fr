@@ -372,7 +372,7 @@ def signals_page(
     date_from: str | None = Query(default=None),
     date_to: str | None = Query(default=None),
 ):
-    # 1) Construction des filtres SQL
+    # 1) Construire les filtres dynamiques
     where = ["1=1"]
     params: list = []
 
@@ -394,87 +394,59 @@ def signals_page(
         params.append(date_to)
 
     if label and label.strip():
-        # ne filtre pas via le join d'agrégat pour éviter les surprises
         where.append(
-            "EXISTS (select 1 from signal_feedback sf2 "
-            "where sf2.signal_id = s.id and sf2.label = %s)"
+            "EXISTS (select 1 from signal_feedback sf "
+            "where sf.signal_id = s.id and sf.label = %s)"
         )
         params.append(label.strip())
 
     where_sql = " AND ".join(where)
 
+    # 2) Récupérer les signaux
     rows: list[dict] = []
-    counts: dict[int, dict[str, int]] = {}
-
-    # 2) Requête principale + agrégats de feedback dans la même requête
     with psycopg.connect(DB_URL) as conn:
         with conn.cursor() as cur:
             sql = f"""
-                select
-                    s.id,
-                    coalesce(c.name,'Inconnue') as company_name,
-                    c.siren,
-                    s.type,
-                    s.event_date,
-                    s.url,
-                    s.excerpt,
-                    s.weight,
-                    s.confidence,
-                    coalesce(sum(case when sf.label = 'reliable'       then 1 else 0 end), 0) as reliable_count,
-                    coalesce(sum(case when sf.label = 'unclear'        then 1 else 0 end), 0) as unclear_count,
-                    coalesce(sum(case when sf.label = 'broken_link'    then 1 else 0 end), 0) as broken_link_count,
-                    coalesce(sum(case when sf.label = 'false_positive' then 1 else 0 end), 0) as false_positive_count
-                from signal s
-                left join company c on c.id = s.company_id
-                left join signal_feedback sf on sf.signal_id = s.id
-                where {where_sql}
-                group by
-                    s.id,
-                    company_name,
-                    c.siren,
-                    s.type,
-                    s.event_date,
-                    s.url,
-                    s.excerpt,
-                    s.weight,
-                    s.confidence
-                order by s.event_date desc, s.id desc
-                limit %s;
+                select s.id,
+                       coalesce(c.name,'Inconnue') as company_name,
+                       c.siren,
+                       s.type,
+                       s.event_date,
+                       s.url,
+                       s.excerpt,
+                       s.weight,
+                       s.confidence
+                  from signal s
+             left join company c on c.id = s.company_id
+                 where {where_sql}
+              order by s.event_date desc, s.id desc
+                 limit %s;
             """
             cur.execute(sql, (*params, limit))
-            for (
-                sid,
-                company_name,
-                siren,
-                sig_t,
-                event_date,
-                url,
-                excerpt,
-                weight,
-                confidence,
-                reliable_count,
-                unclear_count,
-                broken_link_count,
-                false_positive_count,
-            ) in cur.fetchall():
-                rows.append({
-                    "id": sid,
-                    "company_name": company_name,
-                    "siren": siren,
-                    "type": sig_t,
-                    "event_date": event_date,
-                    "url": url,
-                    "excerpt": excerpt,
-                    "weight": weight,
-                    "confidence": confidence,
-                })
-                counts[sid] = {
-                    "reliable": int(reliable_count),
-                    "unclear": int(unclear_count),
-                    "broken_link": int(broken_link_count),
-                    "false_positive": int(false_positive_count),
-                }
+            cols = [d[0] for d in cur.description]
+            for r in cur.fetchall():
+                rows.append(dict(zip(cols, r)))
 
+    # 3) Compter les feedbacks par signal (version simple : 1 requête par signal)
+    counts: dict[int, dict[str, int]] = {}
+    if rows:
+        with psycopg.connect(DB_URL) as conn:
+            with conn.cursor() as cur:
+                for row in rows:
+                    sid = row["id"]
+                    cur.execute(
+                        """
+                        select label, count(*) as n
+                          from signal_feedback
+                         where signal_id = %s
+                         group by label;
+                        """,
+                        (sid,),
+                    )
+                    for lbl, n in cur.fetchall():
+                        counts.setdefault(sid, {})[lbl] = int(n)
+
+    # 4) Rendu template
     return templates.TemplateResponse(
         "signals.html",
         {
@@ -490,6 +462,7 @@ def signals_page(
             "app_name": "Radar FR",
         },
     )
+
 
 # --- INTERNAL: check source links and tag broken_link ---
 import urllib.request
