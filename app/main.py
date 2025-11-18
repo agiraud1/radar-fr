@@ -372,7 +372,7 @@ def signals_page(
     date_from: str | None = Query(default=None),
     date_to: str | None = Query(default=None),
 ):
-    # 1) Construire les filtres dynamiques
+    # Build filtres SQL
     where = ["1=1"]
     params: list = []
 
@@ -402,7 +402,7 @@ def signals_page(
 
     where_sql = " AND ".join(where)
 
-    # 2) Récupérer les signaux
+    # Derniers signaux
     rows: list[dict] = []
     with psycopg.connect(DB_URL) as conn:
         with conn.cursor() as cur:
@@ -427,26 +427,24 @@ def signals_page(
             for r in cur.fetchall():
                 rows.append(dict(zip(cols, r)))
 
-    # 3) Compter les feedbacks par signal (version simple : 1 requête par signal)
+    # Agrégats feedback pour ces signaux
     counts: dict[int, dict[str, int]] = {}
     if rows:
+        ids = [r["id"] for r in rows]
         with psycopg.connect(DB_URL) as conn:
             with conn.cursor() as cur:
-                for row in rows:
-                    sid = row["id"]
-                    cur.execute(
-                        """
-                        select label, count(*) as n
-                          from signal_feedback
-                         where signal_id = %s
-                         group by label;
-                        """,
-                        (sid,),
-                    )
-                    for lbl, n in cur.fetchall():
-                        counts.setdefault(sid, {})[lbl] = int(n)
+                cur.execute(
+                    """
+                    select signal_id, label, count(*) as n
+                      from signal_feedback
+                     where signal_id = ANY(%s)
+                     group by signal_id, label;
+                    """,
+                    (ids,),
+                )
+                for sid, lbl, n in cur.fetchall():
+                    counts.setdefault(sid, {})[lbl] = int(n)
 
-    # 4) Rendu template
     return templates.TemplateResponse(
         "signals.html",
         {
@@ -462,7 +460,6 @@ def signals_page(
             "app_name": "Radar FR",
         },
     )
-
 
 # --- INTERNAL: check source links and tag broken_link ---
 import urllib.request
