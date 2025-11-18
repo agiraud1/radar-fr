@@ -372,7 +372,7 @@ def signals_page(
     date_from: str | None = Query(default=None),
     date_to: str | None = Query(default=None),
 ):
-    # Build filtres SQL
+    # Build filtres
     where = ["1=1"]
     params: list = []
 
@@ -402,7 +402,7 @@ def signals_page(
 
     where_sql = " AND ".join(where)
 
-    # Derniers signaux
+    # Derniers signaux avec agrégats de feedback par signal
     rows: list[dict] = []
     with psycopg.connect(DB_URL) as conn:
         with conn.cursor() as cur:
@@ -427,7 +427,7 @@ def signals_page(
             for r in cur.fetchall():
                 rows.append(dict(zip(cols, r)))
 
-    # Agrégats feedback pour ces signaux
+    # Feedback counts pour ces signaux
     counts: dict[int, dict[str, int]] = {}
     if rows:
         ids = [r["id"] for r in rows]
