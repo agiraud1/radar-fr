@@ -1,17 +1,18 @@
 FROM python:3.11-slim
 
-# 1) Pré-requis système minimum
+# 0) Dépendances système minimales
 RUN apt-get update -y && apt-get install -y --no-install-recommends \
     curl build-essential \
-    && rm -rf /var/lib/apt/lists/*
+ && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /code
 
-# 2) Dépendances Python
-COPY app/requirements.txt ./app/requirements.txt
-RUN pip install --no-cache-dir -r app/requirements.txt
+# 1) Dépendances Python
+# -> requirements.txt à la racine (pas dans app/)
+COPY requirements.txt ./requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt
 
-# 3) Code backend : on copie tout le package app/
+# 2) Code backend : on copie tout le package app/
 COPY app/ ./app
 
 ENV PYTHONUNBUFFERED=1
