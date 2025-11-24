@@ -372,46 +372,44 @@ def signals_page(
     date_from: str | None = Query(default=None),
     date_to: str | None = Query(default=None),
 ):
-    # Build filtres
-    where_clauses: list[str] = ["1=1"]
+    # 1) Construction des filtres SQL
+    where = ["1=1"]
     params: list = []
 
     if q and q.strip():
+        where.append("(s.excerpt ILIKE %s OR c.name ILIKE %s OR c.siren ILIKE %s)")
         v = f"%{q.strip()}%"
-        where_clauses.append(
-            "(s.excerpt ILIKE %s OR c.name ILIKE %s OR c.siren ILIKE %s)"
-        )
         params += [v, v, v]
 
     if sig_type and sig_type.strip():
-        where_clauses.append("s.type = %s")
+        where.append("s.type = %s")
         params.append(sig_type.strip())
 
     if date_from:
-        where_clauses.append("s.event_date >= %s::date")
+        where.append("s.event_date >= %s::date")
         params.append(date_from)
 
     if date_to:
-        where_clauses.append("s.event_date <= %s::date")
+        where.append("s.event_date <= %s::date")
         params.append(date_to)
 
     if label and label.strip():
-        where_clauses.append(
-            "EXISTS (select 1 from signal_feedback sf "
-            "where sf.signal_id = s.id and sf.label = %s)"
+        where.append(
+            "EXISTS (SELECT 1 FROM signal_feedback sf "
+            "WHERE sf.signal_id = s.id AND sf.label = %s)"
         )
         params.append(label.strip())
 
-    where_sql = " AND ".join(where_clauses)
+    where_sql = " AND ".join(where)
 
-    # Derniers signaux
+    # 2) Récupération des signaux
     rows: list[dict] = []
     with psycopg.connect(DB_URL) as conn:
         with conn.cursor() as cur:
             sql = f"""
-                select
+                SELECT
                     s.id,
-                    coalesce(c.name,'Inconnue') as company_name,
+                    COALESCE(c.name, 'Inconnue') AS company_name,
                     c.siren,
                     s.type,
                     s.event_date,
@@ -419,38 +417,34 @@ def signals_page(
                     s.excerpt,
                     s.weight,
                     s.confidence
-                from signal s
-                left join company c on c.id = s.company_id
-                where {where_sql}
-                order by s.event_date desc, s.id desc
-                limit %s;
+                FROM signal s
+                LEFT JOIN company c ON c.id = s.company_id
+                WHERE {where_sql}
+                ORDER BY s.event_date DESC, s.id DESC
+                LIMIT %s;
             """
             cur.execute(sql, (*params, limit))
             cols = [d[0] for d in cur.description]
             for r in cur.fetchall():
                 rows.append(dict(zip(cols, r)))
 
-    # Agrégats de feedback pour ces signaux
+    # 3) Agrégats de feedback pour ces signaux
     counts: dict[int, dict[str, int]] = {}
     if rows:
         ids = [r["id"] for r in rows]
-        try:
-            with psycopg.connect(DB_URL) as conn:
-                with conn.cursor() as cur:
-                    cur.execute(
-                        """
-                        select signal_id, label, count(*) as n
-                        from signal_feedback
-                        where signal_id = ANY(%s)
-                        group by signal_id, label;
-                        """,
-                        (ids,),
-                    )
-                    for sid, lbl, n in cur.fetchall():
-                        counts.setdefault(sid, {})[lbl] = int(n)
-        except Exception as e:
-            # On ne casse pas la page si la requête de counts pose problème
-            print("[/signals] feedback counts error:", repr(e))
+        with psycopg.connect(DB_URL) as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT signal_id, label, count(*) AS n
+                    FROM signal_feedback
+                    WHERE signal_id = ANY(%s)
+                    GROUP BY signal_id, label;
+                    """,
+                    (ids,),
+                )
+                for sid, lbl, n in cur.fetchall():
+                    counts.setdefault(sid, {})[lbl] = int(n)
 
     return templates.TemplateResponse(
         "signals.html",
@@ -467,6 +461,7 @@ def signals_page(
             "app_name": "Radar FR",
         },
     )
+
 
 # --- INTERNAL: check source links and tag broken_link ---
 import urllib.request
