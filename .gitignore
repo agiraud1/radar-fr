@@ -1,32 +1,20 @@
-# Python
-__pycache__/
+__pycache__
 *.py[cod]
-*.egg-info/
-.venv/
-venv/
+*.pyo
+*.pyd
+*.db
+*.sqlite3
+*.log
 
-# Env & secrets
 .env
 .env.*
-secrets*.json
-*.key
-*.pem
+.venv
+venv
 
-# OS/IDE
-.DS_Store
-.idea/
-.vscode/
+.git
+.gitignore
+.idea
+.vscode
 
-# Docker/Compose artefacts
-*.log
-*.pid
-.env.docker
-
-# Compiled assets / cache
-static/dist/
-.cache/
-
-# Backups
-*.bak
-app/main.py.bak*
-=
+*.tmp
+*.swp
