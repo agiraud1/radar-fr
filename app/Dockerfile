@@ -1,23 +1,20 @@
 FROM python:3.11-slim
 
-# Déps système minimales
+# 1) Pré-requis système minimum
 RUN apt-get update -y && apt-get install -y --no-install-recommends \
     curl build-essential \
     && rm -rf /var/lib/apt/lists/*
 
-# On travaille à la racine du projet dans le conteneur
 WORKDIR /code
 
-# 1) Dépendances Python (requirements dans app/)
+# 2) Dépendances Python
 COPY app/requirements.txt ./app/requirements.txt
 RUN pip install --no-cache-dir -r app/requirements.txt
 
-# 2) Code backend : on copie tout le package app/ tel quel
+# 3) Code backend : on copie tout le package app/
 COPY app/ ./app
 
+ENV PYTHONUNBUFFERED=1
 ENV PORT=8080
-EXPOSE 8080
 
-# 3) Lancement de l'API FastAPI
-# -> module app.main, objet app
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8080"]
