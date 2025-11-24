@@ -372,7 +372,7 @@ def signals_page(
     date_from: str | None = Query(default=None),
     date_to: str | None = Query(default=None),
 ):
-    # 1) Construction des filtres SQL
+    # Build filtres
     where = ["1=1"]
     params: list = []
 
@@ -395,40 +395,41 @@ def signals_page(
 
     if label and label.strip():
         where.append(
-            "EXISTS (SELECT 1 FROM signal_feedback sf "
-            "WHERE sf.signal_id = s.id AND sf.label = %s)"
+            "EXISTS (select 1 from signal_feedback sf "
+            "where sf.signal_id = s.id and sf.label = %s)"
         )
         params.append(label.strip())
 
     where_sql = " AND ".join(where)
 
-    # 2) Récupération des signaux
+    # Derniers signaux
     rows: list[dict] = []
     with psycopg.connect(DB_URL) as conn:
         with conn.cursor() as cur:
-            sql = f"""
-                SELECT
-                    s.id,
-                    COALESCE(c.name, 'Inconnue') AS company_name,
-                    c.siren,
-                    s.type,
-                    s.event_date,
-                    s.url,
-                    s.excerpt,
-                    s.weight,
-                    s.confidence
-                FROM signal s
-                LEFT JOIN company c ON c.id = s.company_id
-                WHERE {where_sql}
-                ORDER BY s.event_date DESC, s.id DESC
-                LIMIT %s;
-            """
-            cur.execute(sql, (*params, limit))
+            cur.execute(
+                f"""
+                select s.id,
+                       coalesce(c.name,'Inconnue') as company_name,
+                       c.siren,
+                       s.type,
+                       s.event_date,
+                       s.url,
+                       s.excerpt,
+                       s.weight,
+                       s.confidence
+                  from signal s
+             left join company c on c.id = s.company_id
+                 where {where_sql}
+              order by s.event_date desc, s.id desc
+                 limit %s;
+                """,
+                (*params, limit),
+            )
             cols = [d[0] for d in cur.description]
             for r in cur.fetchall():
                 rows.append(dict(zip(cols, r)))
 
-    # 3) Agrégats de feedback pour ces signaux
+    # Feedback counts pour ces signaux
     counts: dict[int, dict[str, int]] = {}
     if rows:
         ids = [r["id"] for r in rows]
@@ -436,10 +437,10 @@ def signals_page(
             with conn.cursor() as cur:
                 cur.execute(
                     """
-                    SELECT signal_id, label, count(*) AS n
-                    FROM signal_feedback
-                    WHERE signal_id = ANY(%s)
-                    GROUP BY signal_id, label;
+                    select signal_id, label, count(*) as n
+                      from signal_feedback
+                     where signal_id = ANY(%s)
+                     group by signal_id, label;
                     """,
                     (ids,),
                 )
@@ -461,6 +462,7 @@ def signals_page(
             "app_name": "Radar FR",
         },
     )
+
 
 
 # --- INTERNAL: check source links and tag broken_link ---
